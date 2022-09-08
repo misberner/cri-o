@@ -188,27 +188,41 @@ func (svc *imageService) makeRepoDigests(knownRepoDigests, tags []string, img *s
 			imageDigests = append(imageDigests, anotherImageDigest)
 		}
 	}
-	// We only want to supplement what's already explicitly in the list, so keep track of values
-	// that we already know.
-	digestMap := make(map[string]struct{})
-	repoDigests = knownRepoDigests
+	// We only want to guess repo digests for tagged names where the trimmed name doesn't have
+	// repo digests (known or guessed) associated with it. So, keep track of all trimmed names
+	// for which at least some repo digests are known or have been guessed.
+	trimmedWithRepoDigest := make(map[string]struct{})
 	for _, repoDigest := range knownRepoDigests {
-		digestMap[repoDigest] = struct{}{}
-	}
-	// For each tagged name, parse the name, and if we can extract a named reference, convert
-	// it into a canonical reference using the digest and add it to the list.
-	for _, name := range append(tags, knownRepoDigests...) {
-		if ref, err2 := reference.ParseNormalizedNamed(name); err2 == nil {
-			trimmed := reference.TrimNamed(ref)
-			for _, imageDigest := range imageDigests {
-				if imageRef, err3 := reference.WithDigest(trimmed, imageDigest); err3 == nil {
-					if _, ok := digestMap[imageRef.String()]; !ok {
-						repoDigests = append(repoDigests, imageRef.String())
-						digestMap[imageRef.String()] = struct{}{}
-					}
-				}
-			}
+		ref, err := reference.ParseNormalizedNamed(repoDigest)
+		if err != nil {
+			continue
 		}
+		trimmedWithRepoDigest[reference.TrimNamed(ref).String()] = struct{}{}
+	}
+
+	repoDigests = knownRepoDigests
+	// For each tagged name, parse the name, and if we can extract a named reference that doesn't
+	// have associated repo digests yet, supplement them by building repodigests from the trimmed
+	// name and all known digests.
+	for _, name := range tags {
+		ref, err := reference.ParseNormalizedNamed(name)
+		if err != nil {
+			continue
+		}
+		trimmed := reference.TrimNamed(ref)
+		if _, ok := trimmedWithRepoDigest[trimmed.String()]; ok {
+			// A repo digest for this trimmed name has already been found (either it was previously
+			// known, or has been guessed).
+			continue
+		}
+		for _, imageDigest := range imageDigests {
+			imageRef, err := reference.WithDigest(trimmed, imageDigest)
+			if err != nil {
+				continue
+			}
+			repoDigests = append(repoDigests, imageRef.String())
+		}
+		trimmedWithRepoDigest[trimmed.String()] = struct{}{}
 	}
 	return imageDigest, repoDigests
 }
