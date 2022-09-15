@@ -812,12 +812,14 @@ func (s *storageImageDestination) Commit(ctx context.Context, unparsedToplevel t
 			return fmt.Errorf("saving big data %q for image %q: %w", blob.String(), img.ID, err)
 		}
 	}
+	manifestDigests := []digest.Digest{s.manifestDigest, ""}[:1]
 	// Save the unparsedToplevel's manifest if it differs from the per-platform one, which is saved below.
 	if len(toplevelManifest) != 0 && !bytes.Equal(toplevelManifest, s.manifest) {
 		manifestDigest, err := manifest.Digest(toplevelManifest)
 		if err != nil {
 			return fmt.Errorf("digesting top-level manifest: %w", err)
 		}
+		manifestDigests = append(manifestDigests, manifestDigest)
 		key := manifestBigDataKey(manifestDigest)
 		if err := s.imageRef.transport.store.SetImageBigData(img.ID, key, toplevelManifest, manifest.Digest); err != nil {
 			logrus.Debugf("error saving top-level manifest for image %q: %v", img.ID, err)
@@ -867,10 +869,13 @@ func (s *storageImageDestination) Commit(ctx context.Context, unparsedToplevel t
 	// Adds the reference's name on the image.  We don't need to worry about avoiding duplicate
 	// values because AddNames() will deduplicate the list that we pass to it.
 	if name := s.imageRef.DockerReference(); name != nil {
-		names := []string{name.String(), ""}[:1]
-		if cname, err := reference.WithDigest(name, s.manifestDigest); err == nil {
-			logrus.Infof("Augmenting name %q with digests as %q", name.String(), cname.String())
-			names = append(names, cname.String())
+		names := make([]string, 0, 1 + len(manifestDigests))
+		names = append(names, name.String())
+		for _, manifestDigest := range manifestDigests {
+			if cname, err := reference.WithDigest(reference.TrimNamed(name), manifestDigest); err == nil {
+				logrus.Infof("Augmenting name %q with digests as %q", name.String(), cname.String())
+				names = append(names, cname.String())
+			}
 		}
 		if err := s.imageRef.transport.store.AddNames(img.ID, names); err != nil {
 			return fmt.Errorf("adding names %v to image %q: %w", name, img.ID, err)
