@@ -215,6 +215,7 @@ func (svc *imageService) makeRepoDigests(knownRepoDigests, tags []string, img *s
 			// known, or has been guessed).
 			continue
 		}
+		logrus.Infof("Guessing digests for %s: any of %+v", name, imageDigests)
 		for _, imageDigest := range imageDigests {
 			imageRef, err := reference.WithDigest(trimmed, imageDigest)
 			if err != nil {

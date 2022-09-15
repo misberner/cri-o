@@ -867,7 +867,11 @@ func (s *storageImageDestination) Commit(ctx context.Context, unparsedToplevel t
 	// Adds the reference's name on the image.  We don't need to worry about avoiding duplicate
 	// values because AddNames() will deduplicate the list that we pass to it.
 	if name := s.imageRef.DockerReference(); name != nil {
-		if err := s.imageRef.transport.store.AddNames(img.ID, []string{name.String()}); err != nil {
+		names := []string{name.String(), ""}[:1]
+		if cname, err := reference.WithDigest(name, s.manifestDigest); err == nil {
+			names = append(names, cname.String())
+		}
+		if err := s.imageRef.transport.store.AddNames(img.ID, names); err != nil {
 			return fmt.Errorf("adding names %v to image %q: %w", name, img.ID, err)
 		}
 		logrus.Debugf("added name %q to image %q", name, img.ID)
