@@ -869,6 +869,7 @@ func (s *storageImageDestination) Commit(ctx context.Context, unparsedToplevel t
 	if name := s.imageRef.DockerReference(); name != nil {
 		names := []string{name.String(), ""}[:1]
 		if cname, err := reference.WithDigest(name, s.manifestDigest); err == nil {
+			logrus.Infof("Augmenting name %q with digests as %q", name.String(), cname.String())
 			names = append(names, cname.String())
 		}
 		if err := s.imageRef.transport.store.AddNames(img.ID, names); err != nil {
