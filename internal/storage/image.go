@@ -241,7 +241,8 @@ func (svc *imageService) buildImageCacheItem(systemContext *types.SystemContext,
 
 func (svc *imageService) buildImageResult(image *storage.Image, cacheItem imageCacheItem) ImageResult {
 	name, tags, digests := sortNamesByType(image.Names)
-	imageDigest, repoDigests := svc.makeRepoDigests(digests, tags, image)
+	imageDigest, _ := svc.makeRepoDigests(digests, tags, image)
+	repoDigests := digests
 	sort.Strings(tags)
 	sort.Strings(repoDigests)
 	previousName := ""
@@ -521,9 +522,11 @@ func copyImageChild() {
 
 	options := toCopyOptions(args.Options, progress)
 	options.SourceCtx = srcSystemContext
-	if _, err := copy.Image(context.Background(), policyContext, destRef, srcRef, options); err != nil {
+	if manifest, err := copy.Image(context.Background(), policyContext, destRef, srcRef, options); err != nil {
 		fmt.Fprintf(os.Stderr, "%v", err)
 		os.Exit(1)
+	} else {
+		logrus.Infof("Pulled image %s with manifest digest %s", args.ImageName, digest.FromBytes(manifest))
 	}
 
 	os.Exit(0)
@@ -650,8 +653,10 @@ func (svc *imageService) PullImage(systemContext *types.SystemContext, imageName
 
 		copyOptions := toCopyOptions(&options, inputOptions.Progress)
 
-		if _, err = copy.Image(svc.ctx, policyContext, destRef, srcRef, copyOptions); err != nil {
+		if manifest, err := copy.Image(svc.ctx, policyContext, destRef, srcRef, copyOptions); err != nil {
 			return nil, err
+		} else {
+			logrus.Infof("Pulled image %s with manifest digest %s", imageName, digest.FromBytes(manifest))
 		}
 	}
 	return destRef, nil
