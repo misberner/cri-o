@@ -471,6 +471,41 @@ func moveSelfToCgroup(cgroup string, hasCollectMode bool) error {
 	return utils.RunUnderSystemdScope(dbusmgr.NewDbusConnManager(rootless.IsRootless()), os.Getpid(), slice, unitName, systemdProperties...)
 }
 
+func attachRepoDigestName(ref types.ImageReference, digest digest.Digest) {
+	dockerRef := ref.DockerReference()
+	if dockerRef == nil {
+		return
+	}
+	if _, ok := dockerRef.(reference.Digested); ok {
+		return // already has a digest
+	}
+	trimmedRef := reference.TrimNamed(dockerRef)
+	repoDigest, err := reference.WithDigest(trimmedRef, digest)
+	if err != nil {
+		logrus.Warnf("Could not create RepoDigest name for %s: %v", dockerRef, err)
+		return
+	}
+	storeTransport, ok := ref.Transport().(istorage.StoreTransport)
+	if !ok {
+		logrus.Warnf("Cannot attach RepoDigest to image %s: no store transport", ref.StringWithinTransport())
+		return
+	}
+	store := storeTransport.GetStoreIfSet()
+	if store == nil {
+		logrus.Warnf("Cannot attach RepoDigest to image %s: store transport has no store set", ref.StringWithinTransport())
+		return
+	}
+	imgID, err := store.Lookup(dockerRef.String())
+	if err != nil {
+		logrus.Warnf("Could not look up image %s in store: %v", ref.StringWithinTransport(), err)
+		return
+	}
+	if err := store.AddNames(imgID, []string{repoDigest.String()}); err != nil {
+		logrus.Warnf("Could not add repodigest name to image %s: %s", ref.StringWithinTransport(), err)
+	}
+	logrus.Infof("Successfully added name %s to image %s", repoDigest, ref.StringWithinTransport())
+}
+
 func copyImageChild() {
 	var args copyImageArgs
 
@@ -522,12 +557,12 @@ func copyImageChild() {
 
 	options := toCopyOptions(args.Options, progress)
 	options.SourceCtx = srcSystemContext
-	if manifest, err := copy.Image(context.Background(), policyContext, destRef, srcRef, options); err != nil {
+	manifest, err := copy.Image(context.Background(), policyContext, destRef, srcRef, options)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v", err)
 		os.Exit(1)
-	} else {
-		logrus.Infof("Pulled image %s with manifest digest %s", args.ImageName, digest.FromBytes(manifest))
 	}
+	attachRepoDigestName(destRef, digest.FromBytes(manifest))
 
 	os.Exit(0)
 }
@@ -653,11 +688,11 @@ func (svc *imageService) PullImage(systemContext *types.SystemContext, imageName
 
 		copyOptions := toCopyOptions(&options, inputOptions.Progress)
 
-		if manifest, err := copy.Image(svc.ctx, policyContext, destRef, srcRef, copyOptions); err != nil {
+		manifest, err := copy.Image(svc.ctx, policyContext, destRef, srcRef, copyOptions)
+		if err != nil {
 			return nil, err
-		} else {
-			logrus.Infof("Pulled image %s with manifest digest %s", imageName, digest.FromBytes(manifest))
 		}
+		attachRepoDigestName(destRef, digest.FromBytes(manifest))
 	}
 	return destRef, nil
 }
