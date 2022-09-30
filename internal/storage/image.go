@@ -192,6 +192,11 @@ func (svc *imageService) makeRepoDigests(knownRepoDigests, tags []string, img *s
 	// that we already know.
 	digestMap := make(map[string]struct{})
 	repoDigests = knownRepoDigests
+	for _, digest := range imageDigests {
+		repoDigests = append(repoDigests, fmt.Sprintf("digest-only.cri-o.io@%s", digest))
+	}
+	return imageDigest, repoDigests
+
 	for _, repoDigest := range knownRepoDigests {
 		digestMap[repoDigest] = struct{}{}
 	}
@@ -241,8 +246,7 @@ func (svc *imageService) buildImageCacheItem(systemContext *types.SystemContext,
 
 func (svc *imageService) buildImageResult(image *storage.Image, cacheItem imageCacheItem) ImageResult {
 	name, tags, digests := sortNamesByType(image.Names)
-	imageDigest, _ := svc.makeRepoDigests(digests, tags, image)
-	repoDigests := digests
+	imageDigest, repoDigests := svc.makeRepoDigests(digests, tags, image)
 	sort.Strings(tags)
 	sort.Strings(repoDigests)
 	previousName := ""
